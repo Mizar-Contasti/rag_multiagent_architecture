@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # Backend API (FastAPI)
+  backend:
+    build: .
+    volumes:
+      - .:/app
+      - hf_models_cache:/root/.cache/huggingface
+    ports:
+      - "8000:8000"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - QDRANT_URL=http://qdrant:6333
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent_pass}@postgres:5432/${POSTGRES_DB:-ai_agent}
+      - SEARXNG_URL=http://searxng:8080
+    command: uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - agent-network
+
+  # Frontend (Vite)
+  frontend:
+    image: node:22-slim
+    working_dir: /app/frontend
+    volumes:
+      - .:/app
+      - /app/frontend/node_modules  # Volumen anónimo para aislar los módulos de Windows
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    command: sh -c "npm install && npm run dev -- --host"
+    depends_on:
+      - backend
+    networks:
+      - agent-network
+
+  # Vector Database (Qdrant)
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' 2>/dev/null && echo ok || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - agent-network
+
+  # Web Search (SearXNG — open source, self-hosted)
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "8080:8080"
+    networks:
+      - agent-network
+
+  # Relational Database (PostgreSQL)
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ai_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent_pass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent} -d ${POSTGRES_DB:-ai_agent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - agent-network
+
+networks:
+  agent-network:
+    driver: bridge
+
+volumes:
+  hf_models_cache:
+  qdrant_data:
+  postgres_data:
