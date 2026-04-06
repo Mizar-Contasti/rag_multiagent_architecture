@@ -71,3 +71,14 @@ coverage.xml
 .hypothesis/
 .cache
 .claude/
+
+# Verification & Benchmarks
+check_groq_models.py
+create_test_pdf.py
+final_verify.py
+model_benchmark.py
+stress_test_rag.py
+test_api.py
+test_groq_active_models.py
+verify_progress.py
+verify_rag_fix.py
